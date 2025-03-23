@@ -1,24 +1,24 @@
+use rand::prelude::*;
+use raylib::prelude::*;
 use std::{
     cmp::{max, min},
     fmt,
     ops::ControlFlow,
 };
 
-use raylib::prelude::*;
-
 mod lambda;
 use crate::lambda::*;
 
 #[derive(Debug, Default)]
 struct Game {
-    lam_objs: Vec<LambdaObj<&'static str>>,
-    grab_obj: Option<LambdaObj<&'static str>>,
+    lam_objs: Vec<LambdaObj<String>>,
+    grab_obj: Option<LambdaObj<String>>,
     grab_offset: Vector2,
     // the target obj drag into
     target_id: Option<usize>,
 
-    factories: Vec<Factory<&'static str>>,
-    trashbin: Factory<&'static str>,
+    factories: Vec<Factory<String>>,
+    trashbin: Factory<String>,
 }
 
 const SCR_W: i32 = 1600;
@@ -73,7 +73,7 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
         &rl,
         "B-factory",
         LambdaBox::b_factory,
-        100.0,
+        50.0,
         500.0,
         10.0 * OBJECT_SIZE as f32,
     ));
@@ -81,7 +81,7 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
         &rl,
         "C-factory",
         LambdaBox::c_factory,
-        500.0,
+        450.0,
         500.0,
         10.0 * OBJECT_SIZE as f32,
     ));
@@ -89,7 +89,18 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
         &rl,
         "K-factory",
         LambdaBox::k_factory,
-        900.0,
+        850.0,
+        500.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "X-factory",
+        || {
+            let mut rng = rand::rng();
+            LambdaBox::new_const((rng.sample(rand::distr::Alphanumeric) as char).to_string())
+        },
+        1250.0,
         500.0,
         10.0 * OBJECT_SIZE as f32,
     ));
