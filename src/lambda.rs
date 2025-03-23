@@ -116,8 +116,11 @@ impl<T> LambdaBox<T> {
             _ => false,
         }
     }
-    pub fn compose(self, expr_box_2: Self) -> Self {
+    pub fn composition(self, expr_box_2: Self) -> Self {
         App(self, expr_box_2).wrap()
+    }
+    pub fn compose(&mut self, expr_box_2: Self) {
+        *self = App(LambdaBox(self.0.clone()), expr_box_2).wrap();
     }
     /// return (abstaction, move out)
     pub fn abstr(self, ptr: LambdaRef<T>) -> (Self, Self) {
@@ -168,7 +171,7 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x.compose(y.compose(z));
+        let expr = x.composition(y.composition(z));
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -179,7 +182,7 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x.compose(z).compose(y);
+        let expr = x.composition(z).composition(y);
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -294,6 +297,9 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino.down_convex.insert(pos.0, pos.1);
                 mino.width = 1;
                 mino.height = 1;
+                mino.skew_width_l = 1;
+                mino.skew_width_r = 1;
+                mino.skew_height = 2;
                 mino
             }
             Lam(LambdaRef(x), f) => {
@@ -309,6 +315,10 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino.down_convex.insert(pos.0, pos.1);
                 mino.width += 1;
                 mino.height = max(mino.height, 1);
+
+                mino.skew_width_l += 1;
+                mino.skew_width_r = max(mino.skew_width_r - 1, 1);
+                mino.skew_height += 1;
                 mino
             }
             App(f, g) => {
@@ -363,6 +373,10 @@ pub struct LambdaMino<T> {
     down_convex: HashMap<i32, i32>,
     pub width: i32,
     pub height: i32,
+    // width and height in rotation 45 degree
+    pub skew_width_l: i32,
+    pub skew_width_r: i32,
+    pub skew_height: i32,
 }
 impl<T> LambdaMino<T> {
     ///move a mino at (0,0)
@@ -419,7 +433,16 @@ impl<T> LambdaMino<T> {
             }
         });
         self.width = max(self.width, other.width);
-        self.height = max(self.height, other.height + diff)
+        self.height = max(self.height, other.height + diff);
+        self.skew_width_l = self
+            .down_convex
+            .iter()
+            .map(|(x, y)| x - y)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        self.skew_width_r = self.up_convex.iter().map(|(x, y)| y - x).max().unwrap_or(0) + 1;
+        self.skew_height = self.up_convex.iter().map(|(x, y)| y + x).max().unwrap_or(0) + 2;
     }
 }
 impl<T: fmt::Display> fmt::Display for LambdaBox<T> {
@@ -437,6 +460,9 @@ impl<T> Default for LambdaMino<T> {
             down_convex: HashMap::new(),
             width: 0,
             height: 0,
+            skew_width_l: 0,
+            skew_width_r: 0,
+            skew_height: 0,
         }
     }
 }
@@ -448,30 +474,5 @@ impl<T> Default for LambdaBox<T> {
 impl<T> Default for LamExpr<T> {
     fn default() -> Self {
         Var
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct LambdaObj<T>
-where
-    T: fmt::Display,
-{
-    lam_box: LambdaBox<T>,
-    pub string: String,
-    pub mino: LambdaMino<T>,
-}
-impl<T: fmt::Display> LambdaObj<T> {
-    pub fn new(lam_box: LambdaBox<T>) -> Self {
-        Self {
-            string: lam_box.to_string(),
-            mino: lam_box.gen_mino(),
-            lam_box,
-        }
-    }
-    pub fn eval_onestep(&mut self) -> bool {
-        let res = self.lam_box.eval_onestep();
-        self.string = self.lam_box.to_string();
-        self.mino = self.lam_box.gen_mino();
-        res
     }
 }
