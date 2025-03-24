@@ -401,40 +401,37 @@ impl<T: fmt::Display> LambdaMino<T> {
         // draw the conection lines
         mino.squares.iter().for_each(|(_, sq)| {
             // draw the link lambda curves
-            if let LambdaSqType::MLink(lk_ref) = &sq.sq_type {
+            if let LambdaSqType::MLink(_, lk_pos) = &sq.sq_type {
                 //get the block position
                 let pos = (t_x(sq.pos), t_y(sq.pos));
                 let target = (t_x(sq.target), t_y(sq.target));
-
-                //get the linked position
-                if let Some(lk_sq) = mino.squares.get(lk_ref) {
-                    let link = (t_x(lk_sq.pos), t_y(lk_sq.pos));
-                    // if the the link apply to block in the same level
-                    if sq.pos.1 == sq.target.1 {
-                        let color = Color::BROWN;
-                        let mid_x = (pos.0 + target.0) / 2.0;
-                        let mid_y = (pos.1 + target.1) / 2.0;
-                        let point_lst = &vec![
-                            Vector2::new(target.0, target.1),
-                            Vector2::new(mid_x, mid_y),
-                            Vector2::new(mid_x, pos.1),
-                            Vector2::new(target.0, pos.1),
-                            Vector2::new(target.0 + scale, pos.1),
-                            Vector2::new(link.0 + scale, link.1 - scale),
-                            Vector2::new(link.0, link.1),
-                        ];
-                        d.draw_spline_bezier_cubic(&point_lst, thick, color);
-                    }
-                    // if link apply from above
-                    else {
-                        let point_lst = &vec![
-                            Vector2::new(target.0, target.1),
-                            Vector2::new(pos.0, pos.1),
-                            Vector2::new(link.0 + scale, link.1 - scale),
-                            Vector2::new(link.0, link.1),
-                        ];
-                        d.draw_spline_bezier_cubic(&point_lst, thick, Color::PURPLE);
-                    };
+                let lk_pos = *lk_pos.borrow();
+                let link = (t_x(lk_pos), t_y(lk_pos));
+                // if the the link apply to block in the same level
+                if sq.pos.1 == sq.target.1 {
+                    let color = Color::BROWN;
+                    let mid_x = (pos.0 + target.0) / 2.0;
+                    let mid_y = (pos.1 + target.1) / 2.0;
+                    let point_lst = &vec![
+                        Vector2::new(target.0, target.1),
+                        Vector2::new(mid_x, mid_y),
+                        Vector2::new(mid_x, pos.1),
+                        Vector2::new(target.0, pos.1),
+                        Vector2::new(target.0 + scale, pos.1),
+                        Vector2::new(link.0 + scale, link.1 - scale),
+                        Vector2::new(link.0, link.1),
+                    ];
+                    d.draw_spline_bezier_cubic(&point_lst, thick, color);
+                }
+                // if link apply from above
+                else {
+                    let point_lst = &vec![
+                        Vector2::new(target.0, target.1),
+                        Vector2::new(pos.0, pos.1),
+                        Vector2::new(link.0 + scale, link.1 - scale),
+                        Vector2::new(link.0, link.1),
+                    ];
+                    d.draw_spline_bezier_cubic(&point_lst, thick, Color::PURPLE);
                 };
             }
             //draw the straight apply lines
@@ -449,7 +446,7 @@ impl<T: fmt::Display> LambdaMino<T> {
         });
         //draw the block symbols
         mino.squares.iter().for_each(|(_, sq)| {
-            if let LambdaSqType::MLink(_) = sq.sq_type {
+            if let LambdaSqType::MLink(_, _) = sq.sq_type {
                 // (
                 //     (t_x(sq.pos.0) + t_x(sq.target.0)) / 2,
                 //     (t_y(sq.pos.1) + t_y(sq.target.1)) / 2,

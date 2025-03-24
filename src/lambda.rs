@@ -261,7 +261,9 @@ impl<T: fmt::Display> LambdaBox<T> {
         }
     }
     pub fn gen_mino(&self) -> LambdaMino<T> {
-        self.gen_mino_context(&mut HashMap::new(), (0, 0), (-1, 0))
+        let mut mino = self.gen_mino_context(&mut HashMap::new(), (0, 0), (-1, 0));
+        mino.update_link();
+        mino
     }
     ///generate a LambdaMino, start at the given position
     fn gen_mino_context(
@@ -279,7 +281,7 @@ impl<T: fmt::Display> LambdaBox<T> {
                     let sq = LambdaSquare {
                         pos,
                         target,
-                        sq_type: MLink(link),
+                        sq_type: MLink(link, (0, 0).into()),
                     };
                     mino.squares.insert(LambdaRef(self.0.clone()), sq);
                 }
@@ -346,7 +348,7 @@ pub enum LambdaSqType<T> {
     MCon(String),
     MApp,
     MLam,
-    MLink(LambdaRef<T>),
+    MLink(LambdaRef<T>, RefCell<MinoPos>),
 }
 impl<T: fmt::Display> fmt::Display for LambdaSqType<T> {
     fn fmt(&self, fm: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -354,7 +356,7 @@ impl<T: fmt::Display> fmt::Display for LambdaSqType<T> {
             MCon(s) => write!(fm, "{}", s.to_string()),
             MApp => write!(fm, "@"),
             MLam => write!(fm, "/"),
-            MLink(_) => write!(fm, ""),
+            MLink(_, _) => write!(fm, ""),
         }
     }
 }
@@ -379,6 +381,15 @@ pub struct LambdaMino<T> {
     pub skew_height: i32,
 }
 impl<T> LambdaMino<T> {
+    fn update_link(&mut self) {
+        self.squares.iter().for_each(|(_, sq)| {
+            if let MLink(lk_ref, lk_pos) = &sq.sq_type {
+                if let Some(lk_sq) = self.squares.get(lk_ref) {
+                    lk_pos.replace(lk_sq.pos);
+                }
+            }
+        })
+    }
     ///move a mino at (0,0)
     fn move_mino(&mut self, offset: MinoPos, target: MinoPos) {
         self.squares.iter_mut().for_each(|(_, sq)| {
