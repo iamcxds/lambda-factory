@@ -391,10 +391,12 @@ impl<T: fmt::Display> LambdaMino<T> {
         let thick = scale * 0.1;
         let t_x = |pos: (i32, i32)| {
             position.x + size * (1.0 - margin_rate)
-                - (pos.0 - pos.1 + length - mino.skew_width_l) as f32 * scale
+                - (pos.0 - pos.1 + (1 + length + mino.skew_width_r - mino.skew_width_l) / 2) as f32
+                    * scale
         };
         let t_y = |pos: (i32, i32)| {
-            position.y + size * (1.0 - margin_rate) - (pos.0 + pos.1 + 1) as f32 * scale
+            position.y + size * (1.0 - margin_rate)
+                - (pos.0 + pos.1 + 1 + (length - mino.skew_height) / 2) as f32 * scale
         };
         // draw the conection lines
         mino.squares.iter().for_each(|(_, sq)| {
