@@ -5,7 +5,7 @@ const LAMBDA: char = 'λ';
 
 #[derive(Debug)]
 pub struct LambdaBox<T>(Rc<RefCell<LamExpr<T>>>);
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LambdaRef<T>(Rc<RefCell<LamExpr<T>>>);
 #[derive(Debug)]
 enum LamExpr<T> {
@@ -17,6 +17,9 @@ enum LamExpr<T> {
     // Lam label x f, x is jut pointer to the variable
     Lam(LambdaRef<T>, LambdaBox<T>),
     Link(LambdaBox<T>),
+    // duplication true=left= colink.0, false=right=colink.1
+    DupLink(bool, LambdaRef<T>),
+    CoLink(LambdaBox<T>, LambdaBox<T>),
 }
 
 use crate::lambda::LamExpr::*;
@@ -69,12 +72,60 @@ impl<T> LambdaBox<T> {
         self.eval();
         self
     }
+    /// process Link and duplication.
     fn do_link(&mut self) {
         let expr = self.0.clone();
         match &mut *expr.borrow_mut() {
             Link(f) => {
                 f.do_link();
                 *self = LambdaBox(f.0.clone());
+            }
+            //
+            DupLink(p, f) => {
+                let mut f_box = LambdaBox(f.0.clone());
+                f_box.do_link();
+                *f = f_box.get_ref();
+                match &mut *f_box.0.clone().borrow_mut() {
+                    CoLink(a, b) => {
+                        let tg = if *p { a } else { b };
+                        tg.do_link();
+                        *self = LambdaBox(tg.0.clone());
+                    }
+                    Lam(x, g) => {
+                        let (var, var_ref) = Var.wrap_ref();
+                        {
+                            let mut x_ref = x.0.borrow_mut();
+                            match &*x_ref {
+                                CoLink(a, b) => {
+                                    if *p {
+                                        *x_ref = CoLink(var, LambdaBox(b.0.clone()));
+                                    } else {
+                                        *x_ref = CoLink(LambdaBox(a.0.clone()), var);
+                                    }
+                                }
+                                _ => {
+                                    if *p {
+                                        *x_ref = CoLink(var, LambdaBox::default());
+                                    } else {
+                                        *x_ref = CoLink(LambdaBox::default(), var);
+                                    }
+                                }
+                            }
+                        }
+                        let mut lk_g = DupLink(*p, g.get_ref()).wrap();
+                        lk_g.do_link();
+                        *self = Lam(var_ref, lk_g).wrap();
+                    }
+                    App(h, g) => {
+                        let mut lk_h = DupLink(*p, h.get_ref()).wrap();
+                        let mut lk_g = DupLink(*p, g.get_ref()).wrap();
+                        lk_h.do_link();
+                        lk_g.do_link();
+                        *self = App(lk_h, lk_g).wrap();
+                    }
+
+                    _ => {}
+                }
             }
             Lam(_, f) => {
                 f.do_link();
@@ -157,6 +208,15 @@ impl<T> LambdaBox<T> {
                         f.check_ref(pointer)
                     }
                 }
+                DupLink(_, f) => LambdaBox(f.0.clone()).check_ref(pointer),
+                Link(f) => f.check_ref(pointer),
+                CoLink(f, g) => {
+                    if let Some(b) = f.check_ref(pointer) {
+                        Some(b)
+                    } else {
+                        g.check_ref(pointer)
+                    }
+                }
                 _ => None,
             }
         }
@@ -195,6 +255,17 @@ impl<T> LambdaBox<T> {
         let expr = expr.abstr(x_r).0;
         expr
     }
+    pub fn w_factory() -> Self {
+        let (x, x_r) = Var.wrap_ref();
+        let (y, y_r) = Var.wrap_ref();
+        let expr = x
+            .composition(DupLink(true, y.get_ref()).wrap())
+            .composition(DupLink(false, y.get_ref()).wrap());
+        println!("{}", LambdaBox(y_r.0.clone()).get_ref() == y_r);
+        let expr = expr.abstr(y_r).0;
+        let expr = expr.abstr(x_r).0;
+        expr
+    }
     pub fn new_const(t: T) -> Self {
         Con(t).wrap()
     }
@@ -206,6 +277,11 @@ impl<T> PartialEq for LambdaRef<T> {
     }
 }
 impl<T> Eq for LambdaRef<T> {}
+impl<T> Clone for LambdaRef<T> {
+    fn clone(&self) -> Self {
+        LambdaRef(self.0.clone())
+    }
+}
 impl<T> std::hash::Hash for LambdaRef<T> {
     fn hash<H>(&self, hasher: &mut H)
     where
@@ -224,7 +300,7 @@ impl<T: fmt::Display> LambdaBox<T> {
         let expr = &*expr_box.borrow();
         match expr {
             Var => {
-                if let Some(j) = ref_map.remove(&LambdaRef(self.0.clone())) {
+                if let Some(j) = ref_map.get(&self.get_ref()) {
                     j.to_string()
                 } else {
                     **index += 1;
@@ -232,9 +308,9 @@ impl<T: fmt::Display> LambdaBox<T> {
                 }
             }
             Con(s) => s.to_string(),
-            Lam(LambdaRef(x), f) => {
+            Lam(x, f) => {
                 let c_index = **index;
-                ref_map.insert(LambdaRef(x.clone()), c_index);
+                ref_map.insert(x.clone(), c_index);
                 **index += 1;
 
                 format!(
@@ -257,17 +333,20 @@ impl<T: fmt::Display> LambdaBox<T> {
                     g.fmt_context(ref_map, index)
                 ),
             },
-            Link(f) => f.fmt_context(ref_map, index),
+            // Link(f1) => f1.fmt_context(ref_map, index),
+            DupLink(_, f2) => LambdaBox(f2.0.clone()).fmt_context(ref_map, index),
+            _ => "".to_string(),
         }
     }
     pub fn gen_mino(&self) -> LambdaMino<T> {
-        let mut mino = self.gen_mino_context(&mut HashMap::new(), (0, 0), (-1, 0));
+        let mut mino = self.gen_mino_context(self.get_ref(), &mut HashMap::new(), (0, 0), (-1, 0));
         mino.update_link();
         mino
     }
     ///generate a LambdaMino, start at the given position
     fn gen_mino_context(
         &self,
+        sq_ref: LambdaRef<T>,
         ref_map: &mut HashMap<LambdaRef<T>, LambdaRef<T>>,
         pos: MinoPos,
         target: MinoPos,
@@ -277,13 +356,13 @@ impl<T: fmt::Display> LambdaBox<T> {
         match expr {
             Var => {
                 let mut mino = LambdaMino::default();
-                if let Some(link) = ref_map.remove(&LambdaRef(self.0.clone())) {
+                if let Some(link) = ref_map.get(&self.get_ref()) {
                     let sq = LambdaSquare {
                         pos,
                         target,
-                        sq_type: MLink(link, (0, 0).into()),
+                        sq_type: MLink(link.clone(), (0, 0).into()),
                     };
-                    mino.squares.insert(LambdaRef(self.0.clone()), sq);
+                    mino.squares.insert(sq_ref, sq);
                 }
                 mino
             }
@@ -294,7 +373,7 @@ impl<T: fmt::Display> LambdaBox<T> {
                     target,
                     sq_type: MCon(s.to_string()),
                 };
-                mino.squares.insert(LambdaRef(self.0.clone()), sq);
+                mino.squares.insert(sq_ref, sq);
                 mino.up_convex.insert(pos.0, pos.1);
                 mino.down_convex.insert(pos.0, pos.1);
                 mino.width = 1;
@@ -304,15 +383,15 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino.skew_height = 2;
                 mino
             }
-            Lam(LambdaRef(x), f) => {
-                ref_map.insert(LambdaRef(x.clone()), LambdaRef(self.0.clone()));
-                let mut mino = f.gen_mino_context(ref_map, (pos.0 + 1, pos.1), pos);
+            Lam(x, f) => {
+                ref_map.insert(x.clone(), self.get_ref());
+                let mut mino = f.gen_mino_context(f.get_ref(), ref_map, (pos.0 + 1, pos.1), pos);
                 let sq = LambdaSquare {
                     pos,
                     target,
                     sq_type: MLam,
                 };
-                mino.squares.insert(LambdaRef(self.0.clone()), sq);
+                mino.squares.insert(sq_ref, sq);
                 mino.up_convex.insert(pos.0, pos.1);
                 mino.down_convex.insert(pos.0, pos.1);
                 mino.width += 1;
@@ -324,19 +403,21 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino
             }
             App(f, g) => {
-                let mut mino = f.gen_mino_context(ref_map, (0, 0), (-1, 0));
+                let mut mino = f.gen_mino_context(f.get_ref(), ref_map, (0, 0), (-1, 0));
 
-                mino.app_combine(g.gen_mino_context(ref_map, (0, 0), (-1, 0)));
+                mino.app_combine(g.gen_mino_context(g.get_ref(), ref_map, (0, 0), (-1, 0)));
                 mino.move_mino(pos, target);
                 let sq = LambdaSquare {
                     pos,
                     target,
                     sq_type: MApp,
                 };
-                mino.squares.insert(LambdaRef(self.0.clone()), sq);
+                mino.squares.insert(self.get_ref(), sq);
                 mino
             }
-            Link(f) => f.gen_mino_context(ref_map, pos, target),
+            Link(f) => f.gen_mino_context(sq_ref, ref_map, pos, target),
+            DupLink(_, f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map, pos, target),
+            _ => LambdaMino::default(),
         }
     }
 }

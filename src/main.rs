@@ -95,6 +95,14 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
     ));
     game.factories.push(Factory::new_factory(
         &rl,
+        "W-factory",
+        LambdaBox::w_factory,
+        850.0,
+        100.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
         "X-factory",
         || {
             let mut rng = rand::rng();
@@ -352,7 +360,6 @@ impl<T: fmt::Display> LambdaObj<T> {
                     self.mino.skew_width_l, self.mino.skew_width_r
                 );
                 println!("s-height:{}", self.mino.skew_height);
-                println!("Eval made:{}", res);
             }
             self.can_eval = res;
             res
@@ -365,6 +372,14 @@ impl<T: fmt::Display> LambdaObj<T> {
         self.string = self.lam_box.to_string();
         self.mino = self.lam_box.gen_mino();
         self.can_eval = true;
+        println!("{}", self.string);
+        println!("width:{}", self.mino.width);
+        println!("height:{}", self.mino.height);
+        println!(
+            "s-width:{},{}",
+            self.mino.skew_width_l, self.mino.skew_width_r
+        );
+        println!("s-height:{}", self.mino.skew_height);
     }
     pub fn render(&self, d: &mut RaylibDrawHandle, color: Color) {
         d.draw_rectangle_rec(self.get_rect(), color);
