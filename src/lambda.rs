@@ -17,9 +17,9 @@ enum LamExpr<T> {
     // Lam label x f, x is jut pointer to the variable
     Lam(LambdaRef<T>, LambdaBox<T>),
     Link(LambdaBox<T>),
-    // duplication true=left= colink.0, false=right=colink.1
-    DupLink(bool, LambdaRef<T>),
-    CoLink(LambdaBox<T>, LambdaBox<T>),
+    DuplRef(LambdaRef<T>),
+    // duplication (origin,duplication)
+    DuplLink(LambdaBox<T>, LambdaBox<T>),
 }
 
 use crate::lambda::LamExpr::*;
@@ -33,7 +33,7 @@ impl<T> LamExpr<T> {
     }
 }
 impl<T> LambdaBox<T> {
-    fn unwrap(self) -> LamExpr<T> {
+    fn take(&mut self) -> LamExpr<T> {
         let LambdaBox(expr) = self;
         let mut var = LamExpr::default();
         swap(&mut var, &mut expr.borrow_mut());
@@ -73,7 +73,8 @@ impl<T> LambdaBox<T> {
         self
     }
     /// process Link and duplication.
-    fn do_link(&mut self) {
+    fn do_link(&mut self, //  ref_map: HashMap<LambdaRef<T>, LambdaRef<T>>
+    ) {
         let expr = self.0.clone();
         match &mut *expr.borrow_mut() {
             Link(f) => {
@@ -81,44 +82,50 @@ impl<T> LambdaBox<T> {
                 *self = LambdaBox(f.0.clone());
             }
             //
-            DupLink(p, f) => {
-                let mut f_box = LambdaBox(f.0.clone());
-                f_box.do_link();
-                *f = f_box.get_ref();
-                match &mut *f_box.0.clone().borrow_mut() {
-                    CoLink(a, b) => {
-                        let tg = if *p { a } else { b };
-                        tg.do_link();
-                        *self = LambdaBox(tg.0.clone());
+            DuplRef(f) => {
+                let mut f_box = f.0.borrow_mut();
+                // f_box.do_link();
+                // *f = f_box.get_ref();
+                match &mut *f_box {
+                    Link(g) => {
+                        let mut dlk = DuplRef(g.get_ref()).wrap();
+                        dlk.do_link();
+                        *self = dlk
+                    }
+                    DuplLink(_, b) => {
+                        b.do_link();
+                        *self = LambdaBox(b.0.clone());
+                        // *f_box = a.take();
+                    }
+                    DuplRef(x) => {
+                        // let (mut var, var_ref) = DuplRef(x.clone()).wrap_ref();
+                        // var.do_link();
+                        // {
+                        //     let mut x_box = LambdaBox(x.0.clone());
+                        //     let x_expr = x_box.take();
+                        //     let new_box = x_expr.wrap();
+                        //     let mut x_ref = x.0.borrow_mut();
+                        //     *x_ref = DuplLink(new_box, var)
+                        // }
+                        if let DuplLink(_, b) = &*x.0.clone().borrow() {
+                            *self = DuplRef(b.get_ref()).wrap();
+                        }
                     }
                     Lam(x, g) => {
                         let (var, var_ref) = Var.wrap_ref();
                         {
+                            // let mut x_box = LambdaBox(x.0.clone());
+                            // let x_expr = x_box.take();
                             let mut x_ref = x.0.borrow_mut();
-                            match &*x_ref {
-                                CoLink(a, b) => {
-                                    if *p {
-                                        *x_ref = CoLink(var, LambdaBox(b.0.clone()));
-                                    } else {
-                                        *x_ref = CoLink(LambdaBox(a.0.clone()), var);
-                                    }
-                                }
-                                _ => {
-                                    if *p {
-                                        *x_ref = CoLink(var, LambdaBox::default());
-                                    } else {
-                                        *x_ref = CoLink(LambdaBox::default(), var);
-                                    }
-                                }
-                            }
+                            *x_ref = DuplLink(Var.wrap(), var)
                         }
-                        let mut lk_g = DupLink(*p, g.get_ref()).wrap();
+                        let mut lk_g = DuplRef(g.get_ref()).wrap();
                         lk_g.do_link();
                         *self = Lam(var_ref, lk_g).wrap();
                     }
                     App(h, g) => {
-                        let mut lk_h = DupLink(*p, h.get_ref()).wrap();
-                        let mut lk_g = DupLink(*p, g.get_ref()).wrap();
+                        let mut lk_h = DuplRef(h.get_ref()).wrap();
+                        let mut lk_g = DuplRef(g.get_ref()).wrap();
                         lk_h.do_link();
                         lk_g.do_link();
                         *self = App(lk_h, lk_g).wrap();
@@ -208,9 +215,9 @@ impl<T> LambdaBox<T> {
                         f.check_ref(pointer)
                     }
                 }
-                DupLink(_, f) => LambdaBox(f.0.clone()).check_ref(pointer),
+                DuplRef(f) => LambdaBox(f.0.clone()).check_ref(pointer),
                 Link(f) => f.check_ref(pointer),
-                CoLink(f, g) => {
+                DuplLink(f, g) => {
                     if let Some(b) = f.check_ref(pointer) {
                         Some(b)
                     } else {
@@ -258,9 +265,7 @@ impl<T> LambdaBox<T> {
     pub fn w_factory() -> Self {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
-        let expr = x
-            .composition(DupLink(true, y.get_ref()).wrap())
-            .composition(DupLink(false, y.get_ref()).wrap());
+        let expr = x.composition(y).composition(DuplRef(y_r.clone()).wrap());
         println!("{}", LambdaBox(y_r.0.clone()).get_ref() == y_r);
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -320,22 +325,24 @@ impl<T: fmt::Display> LambdaBox<T> {
                     f.fmt_context(ref_map, index)
                 )
             }
-            App(f, g) => match &*g.0.borrow() {
-                App(h, i) => format!(
-                    "{} ({} {})",
-                    f.fmt_context(ref_map, index),
-                    h.fmt_context(ref_map, index),
-                    i.fmt_context(ref_map, index)
-                ),
-                _ => format!(
-                    "{} {}",
-                    f.fmt_context(ref_map, index),
-                    g.fmt_context(ref_map, index)
-                ),
-            },
-            // Link(f1) => f1.fmt_context(ref_map, index),
-            DupLink(_, f2) => LambdaBox(f2.0.clone()).fmt_context(ref_map, index),
-            _ => "".to_string(),
+            App(f, g) => {
+                let f_fmt = match &*f.0.borrow() {
+                    Lam(_, _) => format!("({})", f.fmt_context(ref_map, index)),
+                    _ => format!("{}", f.fmt_context(ref_map, index)),
+                };
+                match &*g.0.borrow() {
+                    App(h, i) => format!(
+                        "{} ({} {})",
+                        f_fmt,
+                        h.fmt_context(ref_map, index),
+                        i.fmt_context(ref_map, index)
+                    ),
+                    _ => format!("{} {}", f_fmt, g.fmt_context(ref_map, index)),
+                }
+            }
+            Link(f1) => f1.fmt_context(ref_map, index),
+            DuplRef(f2) => LambdaBox(f2.0.clone()).fmt_context(ref_map, index),
+            DuplLink(a, _) => a.fmt_context(ref_map, index),
         }
     }
     pub fn gen_mino(&self) -> LambdaMino<T> {
@@ -416,8 +423,8 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino
             }
             Link(f) => f.gen_mino_context(sq_ref, ref_map, pos, target),
-            DupLink(_, f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map, pos, target),
-            _ => LambdaMino::default(),
+            DuplRef(f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map, pos, target),
+            DuplLink(a, _) => a.gen_mino_context(sq_ref, ref_map, pos, target),
         }
     }
 }
