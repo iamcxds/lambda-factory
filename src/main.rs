@@ -71,6 +71,38 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
     // ));
     game.factories.push(Factory::new_factory(
         &rl,
+        "S-factory",
+        LambdaBox::s_factory,
+        50.0,
+        100.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "K-factory",
+        LambdaBox::k_factory,
+        450.0,
+        100.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "I-factory",
+        LambdaBox::i_factory,
+        850.0,
+        100.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "Y-factory",
+        LambdaBox::y_factory,
+        1250.0,
+        100.0,
+        10.0 * OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
         "B-factory",
         LambdaBox::b_factory,
         50.0,
@@ -87,18 +119,10 @@ fn load(game: &mut Game, rl: &RaylibHandle) {
     ));
     game.factories.push(Factory::new_factory(
         &rl,
-        "K-factory",
-        LambdaBox::k_factory,
-        850.0,
-        500.0,
-        10.0 * OBJECT_SIZE as f32,
-    ));
-    game.factories.push(Factory::new_factory(
-        &rl,
         "W-factory",
         LambdaBox::w_factory,
         850.0,
-        100.0,
+        500.0,
         10.0 * OBJECT_SIZE as f32,
     ));
     game.factories.push(Factory::new_factory(
@@ -297,8 +321,11 @@ impl<T: fmt::Display> Factory<T> {
         fac
     }
     pub fn produce(&self) -> Option<LambdaObj<T>> {
-        self.generator
-            .map(|gener| LambdaObj::new(gener(), self.position.x, self.position.y, self.size))
+        self.generator.map(|gener| {
+            let obj = LambdaObj::new(gener(), self.position.x, self.position.y, self.size);
+            println!("{}", obj.string);
+            obj
+        })
     }
     pub fn render(&self, d: &mut RaylibDrawHandle) {
         d.draw_rectangle_rec(self.get_rect(), Color::GRAY);
@@ -353,13 +380,13 @@ impl<T: fmt::Display> LambdaObj<T> {
                 self.string = self.lam_box.to_string();
                 self.mino = self.lam_box.gen_mino();
                 println!("{}", self.string);
-                println!("width:{}", self.mino.width);
-                println!("height:{}", self.mino.height);
-                println!(
-                    "s-width:{},{}",
-                    self.mino.skew_width_l, self.mino.skew_width_r
-                );
-                println!("s-height:{}", self.mino.skew_height);
+                // println!("width:{}", self.mino.width);
+                // println!("height:{}", self.mino.height);
+                // println!(
+                //     "s-width:{},{}",
+                //     self.mino.skew_width_l, self.mino.skew_width_r
+                // );
+                // println!("s-height:{}", self.mino.skew_height);
             }
             self.can_eval = res;
             res
@@ -373,13 +400,13 @@ impl<T: fmt::Display> LambdaObj<T> {
         self.mino = self.lam_box.gen_mino();
         self.can_eval = true;
         println!("{}", self.string);
-        println!("width:{}", self.mino.width);
-        println!("height:{}", self.mino.height);
-        println!(
-            "s-width:{},{}",
-            self.mino.skew_width_l, self.mino.skew_width_r
-        );
-        println!("s-height:{}", self.mino.skew_height);
+        // println!("width:{}", self.mino.width);
+        // println!("height:{}", self.mino.height);
+        // println!(
+        //     "s-width:{},{}",
+        //     self.mino.skew_width_l, self.mino.skew_width_r
+        // );
+        // println!("s-height:{}", self.mino.skew_height);
     }
     pub fn render(&self, d: &mut RaylibDrawHandle, color: Color) {
         d.draw_rectangle_rec(self.get_rect(), color);
@@ -400,18 +427,19 @@ impl<T: fmt::Display> LambdaMino<T> {
         let mino = self;
         //draw outline
         let margin_rate = 0.015;
-        let length = max(self.skew_width_l + self.skew_width_r, self.skew_height);
+        let width = self.skew_width_l + self.skew_width_r;
+        let height = self.skew_height;
+        let length = max(width, height);
         let scale = (1.0 - 2.0 * margin_rate) * size / length as f32;
         //line thick
         let thick = scale * 0.1;
         let t_x = |pos: (i32, i32)| {
-            position.x + size * (1.0 - margin_rate)
-                - (pos.0 - pos.1 + (1 + length + mino.skew_width_r - mino.skew_width_l) / 2) as f32
-                    * scale
+            position.x //+ size * 0.5 + 0.5 * (width as f32) * scale
+                - (pos.0 - pos.1  + mino.skew_width_r -(length+width)/2) as f32 * scale
         };
         let t_y = |pos: (i32, i32)| {
-            position.y + size * (1.0 - margin_rate)
-                - (pos.0 + pos.1 + 1 + (length - mino.skew_height) / 2) as f32 * scale
+            position.y //+ size * (1.0 - margin_rate)
+                - (pos.0 + pos.1-(length + height-1) / 2) as f32 * scale
         };
         // draw the conection lines
         mino.squares.iter().for_each(|(_, sq)| {
