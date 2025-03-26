@@ -17,7 +17,7 @@ enum LamExpr<T> {
     // Lam label x f, x is jut pointer to the variable
     Lam(LambdaRef<T>, LambdaBox<T>),
     Link(LambdaBox<T>),
-    DuplRef(LambdaRef<T>),
+    Borrow(LambdaRef<T>),
 }
 
 use crate::lambda::LamExpr::*;
@@ -70,17 +70,17 @@ impl<T> LambdaBox<T> {
         self.eval();
         self
     }
-    fn get_dupl_ref(&self) -> Self {
-        DuplRef(self.get_ref()).wrap()
+    fn borrow(&self) -> Self {
+        Borrow(self.get_ref()).wrap()
     }
     fn duplicate(&self, ref_map: &mut HashMap<LambdaRef<T>, LambdaRef<T>>) -> Self {
         match &*self.0.borrow() {
             Link(g) => g.duplicate(ref_map),
-            DuplRef(x) => {
+            Borrow(x) => {
                 if let Some(new_ref) = ref_map.get(x) {
-                    DuplRef(new_ref.clone()).wrap()
+                    Borrow(new_ref.clone()).wrap()
                 } else {
-                    DuplRef(x.clone()).wrap()
+                    Borrow(x.clone()).wrap()
                 }
             }
             Lam(x, g) => {
@@ -93,11 +93,11 @@ impl<T> LambdaBox<T> {
                 if let Some(var_ref) = ref_map.get(&self.get_ref()) {
                     LambdaBox(var_ref.0.clone())
                 } else {
-                    DuplRef(self.get_ref()).wrap()
+                    Borrow(self.get_ref()).wrap()
                 }
             }
 
-            _ => DuplRef(self.get_ref()).wrap(),
+            _ => Borrow(self.get_ref()).wrap(),
         }
     }
     /// process Link .
@@ -108,7 +108,7 @@ impl<T> LambdaBox<T> {
                 f.do_link();
                 *self = LambdaBox(f.0.clone());
             }
-            DuplRef(f) => *self = LambdaBox(f.0.clone()).duplicate(&mut HashMap::new()),
+            Borrow(f) => *self = LambdaBox(f.0.clone()).duplicate(&mut HashMap::new()),
             Lam(_, f) => {
                 f.do_link();
             }
@@ -130,7 +130,6 @@ impl<T> LambdaBox<T> {
             }
             Lam(_, f) => f.eval_onestep(),
             App(f, g) => {
-                // f.eval_onestep();
                 {
                     let f_ref = &mut *(f.0.borrow_mut());
                     if let Lam(LambdaRef(y), h) = f_ref {
@@ -140,10 +139,10 @@ impl<T> LambdaBox<T> {
                         return true;
                     }
                 }
-                if f.eval_onestep() {
+                if g.eval_onestep() {
                     return true;
                 } else {
-                    g.eval_onestep()
+                    f.eval_onestep()
                 }
             }
             _ => false,
@@ -190,7 +189,7 @@ impl<T> LambdaBox<T> {
                         f.check_ref(pointer)
                     }
                 }
-                DuplRef(f) => LambdaBox(f.0.clone()).check_ref(pointer),
+                Borrow(f) => LambdaBox(f.0.clone()).check_ref(pointer),
                 Link(f) => f.check_ref(pointer),
                 _ => None,
             }
@@ -235,7 +234,7 @@ impl<T> LambdaBox<T> {
     pub fn w_factory() -> Self {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
-        let expr = x.composition(y.get_dupl_ref()).composition(y);
+        let expr = x.composition(y.borrow()).composition(y);
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
         expr
@@ -245,9 +244,7 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x
-            .composition(z.get_dupl_ref())
-            .composition(y.composition(z));
+        let expr = x.composition(z.borrow()).composition(y.composition(z));
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -259,11 +256,11 @@ impl<T> LambdaBox<T> {
         let (y, y_r) = Var.wrap_ref();
         let (f, f_r) = Var.wrap_ref();
         let expr1 = f
-            .get_dupl_ref()
-            .composition(x.get_dupl_ref().composition(x))
+            .borrow()
+            .composition(x.borrow().composition(x))
             .abstr(x_r)
             .0;
-        let expr2 = f.composition(y.get_dupl_ref().composition(y)).abstr(y_r).0;
+        let expr2 = f.composition(y.borrow().composition(y)).abstr(y_r).0;
         let expr = expr1.composition(expr2).abstr(f_r).0;
         expr
     }
@@ -322,27 +319,20 @@ impl<T: fmt::Display> LambdaBox<T> {
                 )
             }
             App(f, g) => {
+                let c_index = *index.clone();
+                let f_fmt0 = f.fmt_context(ref_map, index);
+                let g_fmt = g.fmt_context(ref_map, &mut Box::new(c_index));
                 let f_fmt = match &*f.0.borrow() {
-                    Lam(_, _) => format!("({})", f.fmt_context(ref_map, index)),
-                    _ => format!("{}", f.fmt_context(ref_map, index)),
+                    Lam(_, _) => format!("({})", f_fmt0),
+                    _ => format!("{}", f_fmt0),
                 };
                 match &*g.0.borrow() {
-                    App(h, i) => format!(
-                        "{} ({} {})",
-                        f_fmt,
-                        h.fmt_context(ref_map, index),
-                        i.fmt_context(ref_map, index)
-                    ),
-                    Lam(_, _) => format!(
-                        "{} {}",
-                        f.fmt_context(ref_map, index),
-                        g.fmt_context(ref_map, index)
-                    ),
-                    _ => format!("{} {}", f_fmt, g.fmt_context(ref_map, index)),
+                    App(_, _) => format!("{} ({})", f_fmt, g_fmt),
+                    _ => format!("{} {}", f_fmt, g_fmt),
                 }
             }
             Link(f1) => f1.fmt_context(ref_map, index),
-            DuplRef(f2) => LambdaBox(f2.0.clone()).fmt_context(ref_map, index),
+            Borrow(f2) => LambdaBox(f2.0.clone()).fmt_context(ref_map, index),
         }
     }
     pub fn gen_mino(&self) -> LambdaMino<T> {
@@ -423,7 +413,7 @@ impl<T: fmt::Display> LambdaBox<T> {
                 mino
             }
             Link(f) => f.gen_mino_context(sq_ref, ref_map, pos, target),
-            DuplRef(f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map, pos, target),
+            Borrow(f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map, pos, target),
         }
     }
 }
