@@ -356,6 +356,7 @@ where
     lam_box: LambdaBox<T>,
     pub string: String,
     pub mino: LambdaMino<T>,
+    pub lego: LambdaLego,
     pub position: Vector2,
     pub size: f32,
     pub bkg_color: Color,
@@ -366,6 +367,7 @@ impl<T: fmt::Display> LambdaObj<T> {
         Self {
             string: lam_box.to_string(),
             mino: lam_box.gen_mino(),
+            lego: lam_box.gen_lego(),
             lam_box,
             position: Vector2 { x, y },
             size,
@@ -379,6 +381,7 @@ impl<T: fmt::Display> LambdaObj<T> {
             if res {
                 self.string = self.lam_box.to_string();
                 self.mino = self.lam_box.gen_mino();
+                self.lego = self.lam_box.gen_lego();
                 println!("{}", self.string);
                 // println!("width:{}", self.mino.width);
                 // println!("height:{}", self.mino.height);
@@ -398,6 +401,7 @@ impl<T: fmt::Display> LambdaObj<T> {
         self.lam_box.compose(other.lam_box);
         self.string = self.lam_box.to_string();
         self.mino = self.lam_box.gen_mino();
+        self.lego = self.lam_box.gen_lego();
         self.can_eval = true;
         println!("{}", self.string);
         // println!("width:{}", self.mino.width);
@@ -411,6 +415,7 @@ impl<T: fmt::Display> LambdaObj<T> {
     pub fn render(&self, d: &mut RaylibDrawHandle, color: Color) {
         d.draw_rectangle_rec(self.get_rect(), color);
         self.mino.render(d, self.position, self.size);
+        self.lego.render(d, self.position, 30.0);
     }
     pub fn get_rect(&self) -> Rectangle {
         Rectangle {
@@ -504,5 +509,50 @@ impl<T: fmt::Display> LambdaMino<T> {
                 );
             };
         });
+    }
+}
+impl LambdaLego {
+    fn render(&self, d: &mut RaylibDrawHandle, position: Vector2, scale: f32) {
+        let thick_scale = scale * 0.2;
+        let t_x = |i, x: i32| position.x + x as f32 * scale + i as f32 * thick_scale;
+        let t_y = |i, y: i32| position.y + y as f32 * scale + i as f32 * thick_scale;
+        self.rect_list
+            .iter()
+            .zip(self.symbol_list.iter())
+            .enumerate()
+            .for_each(|(i, (rects, sybs))| {
+                rects.iter().for_each(|(rect, is_top)| {
+                    if *is_top {
+                        let f_rect = Rectangle {
+                            x: t_x(i, rect.x),
+                            y: t_y(i, rect.y),
+                            width: scale * rect.w as f32,
+                            height: scale * rect.h as f32,
+                        };
+
+                        d.draw_rectangle_rec(f_rect, Color::YELLOW);
+                        d.draw_rectangle_lines_ex(f_rect, 1.0, Color::BLACK);
+                    }
+                });
+                sybs.iter().for_each(|(pos, sybs, is_top)| {
+                    if *is_top {
+                        d.draw_text(
+                            sybs,
+                            (t_x(i, pos.0)) as i32,
+                            (t_y(i, pos.1)) as i32,
+                            (scale * 0.5) as i32,
+                            Color::BLACK,
+                        );
+                    } else {
+                        d.draw_text(
+                            sybs,
+                            (t_x(i, pos.0)) as i32,
+                            (t_y(i, pos.1)) as i32,
+                            (thick_scale) as i32,
+                            Color::BLACK,
+                        );
+                    }
+                });
+            });
     }
 }
