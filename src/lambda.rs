@@ -54,6 +54,14 @@ impl Direct2D {
     fn rotation(&self, rot: Self) -> Self {
         Self::from_number(self.to_number() + rot.to_number())
     }
+    fn from_str(str: &str) -> Self {
+        match str {
+            "^" => Up,
+            "v" => Down,
+            ">" => Right,
+            _ => Left,
+        }
+    }
 }
 impl Default for Direct2D {
     fn default() -> Self {
@@ -215,11 +223,16 @@ impl<T> LambdaBox<T> {
             _ => false,
         }
     }
-    pub fn composition(self, expr_box_2: Self) -> Self {
-        App(Left, self, expr_box_2).wrap()
+    pub fn composition(self, dir: &str, expr_box_2: Self) -> Self {
+        App(Direct2D::from_str(dir), self, expr_box_2).wrap()
     }
-    pub fn compose(&mut self, expr_box_2: Self) {
-        *self = App(Left, LambdaBox(self.0.clone()), expr_box_2).wrap();
+    pub fn compose(&mut self, dir: &str, expr_box_2: Self) {
+        *self = App(
+            Direct2D::from_str(dir),
+            LambdaBox(self.0.clone()),
+            expr_box_2,
+        )
+        .wrap();
     }
     /// return (abstaction, move out)
     pub fn abstr(self, ptr: LambdaRef<T>) -> (Self, Self) {
@@ -272,7 +285,7 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x.composition(y.composition(z));
+        let expr = x.composition("<", y.composition("<", z));
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -283,7 +296,7 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x.composition(z).composition(y);
+        let expr = x.composition("<", z).composition("<", y);
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -301,7 +314,7 @@ impl<T> LambdaBox<T> {
     pub fn w_factory() -> Self {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
-        let expr = x.composition(y.borrow()).composition(y);
+        let expr = x.composition("<", y.borrow()).composition("<", y);
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
         expr
@@ -311,7 +324,9 @@ impl<T> LambdaBox<T> {
         let (x, x_r) = Var.wrap_ref();
         let (y, y_r) = Var.wrap_ref();
         let (z, z_r) = Var.wrap_ref();
-        let expr = x.composition(z.borrow()).composition(y.composition(z));
+        let expr = x
+            .composition("<", z.borrow())
+            .composition("<", y.composition("<", z));
         let expr = expr.abstr(z_r).0;
         let expr = expr.abstr(y_r).0;
         let expr = expr.abstr(x_r).0;
@@ -324,11 +339,14 @@ impl<T> LambdaBox<T> {
         let (f, f_r) = Var.wrap_ref();
         let expr1 = f
             .borrow()
-            .composition(x.borrow().composition(x))
+            .composition("<", x.borrow().composition("<", x))
             .abstr(x_r)
             .0;
-        let expr2 = f.composition(y.borrow().composition(y)).abstr(y_r).0;
-        let expr = expr1.composition(expr2).abstr(f_r).0;
+        let expr2 = f
+            .composition("<", y.borrow().composition("<", y))
+            .abstr(y_r)
+            .0;
+        let expr = expr1.composition("<", expr2).abstr(f_r).0;
         expr
     }
     pub fn new_const(t: T) -> Self {
@@ -382,24 +400,32 @@ impl<T: Display> LambdaBox<T> {
             App(dir, f, g) => {
                 let mut f_lego = f.gen_lego_context(ref_map, index);
                 let mut g_lego = g.gen_lego_context(ref_map, index);
-                match dir {
+                let fg_lego = match dir {
                     Up => {
                         g_lego.move_lego((0, f_lego.ground_rect.h));
+                        g_lego.merge(f_lego);
+                        g_lego
                     }
                     Down => {
                         f_lego.move_lego((0, g_lego.ground_rect.h));
+                        f_lego.merge(g_lego);
+                        f_lego
                     }
                     Left => {
                         g_lego.move_lego((f_lego.ground_rect.w, 0));
+
+                        f_lego.merge(g_lego);
+                        f_lego
                     }
                     Right => {
                         f_lego.move_lego((g_lego.ground_rect.w, 0));
+                        g_lego.merge(f_lego);
+                        g_lego
                     }
-                }
-                f_lego.merge(g_lego);
+                };
 
-                let mut app_lego = LambdaLego::new_block(f_lego.ground_rect, dir.to_string());
-                app_lego.stack(f_lego);
+                let mut app_lego = LambdaLego::new_block(fg_lego.ground_rect, dir.to_string());
+                app_lego.stack(fg_lego);
                 app_lego
             }
             Link(f1) => f1.gen_lego_context(ref_map, index),
@@ -554,7 +580,7 @@ impl<T: Display> Display for LambdaSqType<T> {
     fn fmt(&self, fm: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MCon(s) => write!(fm, "{}", s),
-            MApp(_) => write!(fm, "@"),
+            MApp(d) => write!(fm, "{}", d),
             MLam => write!(fm, "/"),
             MLink(_, _) => write!(fm, ""),
         }
@@ -807,7 +833,7 @@ impl LambdaLego {
         Self {
             rect_list: vec![vec![(rect, false)]],
             symbol_list: vec![vec![
-                ((x, y + h / 2), symbol.clone(), false),
+                ((x + w, y + h / 2), symbol.clone(), false),
                 ((x + w / 2, y), symbol, false),
             ]],
             ground_rect: rect,

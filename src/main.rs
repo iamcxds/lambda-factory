@@ -398,7 +398,7 @@ impl<T: fmt::Display> LambdaObj<T> {
         }
     }
     pub fn compose(&mut self, other: Self) {
-        self.lam_box.compose(other.lam_box);
+        self.lam_box.compose("<", other.lam_box);
         self.string = self.lam_box.to_string();
         self.mino = self.lam_box.gen_mino();
         self.lego = self.lam_box.gen_lego();
@@ -415,7 +415,7 @@ impl<T: fmt::Display> LambdaObj<T> {
     pub fn render(&self, d: &mut RaylibDrawHandle, color: Color) {
         d.draw_rectangle_rec(self.get_rect(), color);
         self.mino.render(d, self.position, self.size);
-        self.lego.render(d, self.position, 30.0);
+        // self.lego.render(d, self.position, 30.0);
     }
     pub fn get_rect(&self) -> Rectangle {
         Rectangle {
@@ -460,7 +460,7 @@ impl<T: fmt::Display> LambdaMino<T> {
                     let color = Color::BROWN;
                     let mid_x = (pos.0 + target.0) / 2.0;
                     let mid_y = (pos.1 + target.1) / 2.0;
-                    let point_lst = &vec![
+                    let point_lst = [
                         Vector2::new(target.0, target.1),
                         Vector2::new(mid_x, mid_y),
                         Vector2::new(mid_x, pos.1),
@@ -473,7 +473,7 @@ impl<T: fmt::Display> LambdaMino<T> {
                 }
                 // if link apply from above
                 else {
-                    let point_lst = &vec![
+                    let point_lst = [
                         Vector2::new(target.0, target.1),
                         Vector2::new(pos.0, pos.1),
                         Vector2::new(link.0 + scale, link.1 - scale),
@@ -513,8 +513,9 @@ impl<T: fmt::Display> LambdaMino<T> {
 }
 impl LambdaLego {
     fn render(&self, d: &mut RaylibDrawHandle, position: Vector2, scale: f32) {
-        let thick_scale = scale * 0.2;
-        let t_x = |i, x: i32| position.x + x as f32 * scale + i as f32 * thick_scale;
+        let face_color = Color::YELLOWGREEN;
+        let thick_scale = scale * 0.3;
+        let t_x = |i, x: i32| position.x + x as f32 * scale - i as f32 * thick_scale;
         let t_y = |i, y: i32| position.y + y as f32 * scale + i as f32 * thick_scale;
         self.rect_list
             .iter()
@@ -522,31 +523,74 @@ impl LambdaLego {
             .enumerate()
             .for_each(|(i, (rects, sybs))| {
                 rects.iter().for_each(|(rect, is_top)| {
+                    let vo = Vector2 {
+                        x: t_x(i, rect.x + rect.w),
+                        y: t_y(i, rect.y),
+                    };
+                    let vx = Vector2 {
+                        x: -rect.w as f32 * scale,
+                        y: 0.0,
+                    };
+                    let vy = Vector2 {
+                        x: 0.0,
+                        y: rect.h as f32 * scale,
+                    };
+                    let f_rect = |i| Rectangle {
+                        x: t_x(i, rect.x),
+                        y: t_y(i, rect.y),
+                        width: scale * rect.w as f32,
+                        height: scale * rect.h as f32,
+                    };
                     if *is_top {
-                        let f_rect = Rectangle {
-                            x: t_x(i, rect.x),
-                            y: t_y(i, rect.y),
-                            width: scale * rect.w as f32,
-                            height: scale * rect.h as f32,
+                        d.draw_rectangle_rec(f_rect(i), face_color);
+                        // d.draw_rectangle_lines_ex(f_rect, 1.0, Color::BLACK);
+                        d.draw_spline_linear(
+                            &[vo, vo + vx, vo + vx + vy, vo + vy, vo],
+                            1.0,
+                            Color::BLACK,
+                        );
+                    } else {
+                        let vz = Vector2 {
+                            x: -thick_scale,
+                            y: thick_scale,
                         };
-
-                        d.draw_rectangle_rec(f_rect, Color::YELLOW);
-                        d.draw_rectangle_lines_ex(f_rect, 1.0, Color::BLACK);
+                        d.draw_rectangle_rec(f_rect(i + 1), face_color);
+                        let points = [vo, vo + vx, vo + vx + vz, vo + vz, vo + vz + vy, vo + vy];
+                        d.draw_triangle_fan(&points, face_color);
+                        d.draw_spline_linear(
+                            &[
+                                vo,
+                                vo + vx,
+                                vo + vx + vz,
+                                vo + vz,
+                                vo,
+                                vo + vy,
+                                vo + vy + vz,
+                                vo + vz,
+                            ],
+                            1.0,
+                            Color::BLACK,
+                        );
+                        d.draw_spline_linear(
+                            &[vo + vx + vz, vo + vx + vy + vz, vo + vy + vz],
+                            1.0,
+                            Color::BLACK,
+                        );
                     }
                 });
                 sybs.iter().for_each(|(pos, sybs, is_top)| {
                     if *is_top {
                         d.draw_text(
                             sybs,
-                            (t_x(i, pos.0)) as i32,
+                            (t_x(i, pos.0) - scale * 0.9) as i32,
                             (t_y(i, pos.1)) as i32,
-                            (scale * 0.5) as i32,
+                            (scale) as i32,
                             Color::BLACK,
                         );
                     } else {
                         d.draw_text(
                             sybs,
-                            (t_x(i, pos.0)) as i32,
+                            (t_x(i, pos.0) - thick_scale * 0.7) as i32,
                             (t_y(i, pos.1)) as i32,
                             (thick_scale) as i32,
                             Color::BLACK,
