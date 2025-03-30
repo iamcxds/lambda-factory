@@ -2,82 +2,11 @@ use std::cmp::{max, min};
 use std::fmt::Display;
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-// const LAMBDA: char = 'λ';
-#[derive(Debug, Clone, Copy)]
-pub enum Direct2D {
-    Up,
-    Down,
-    Left,
-    Right,
-}
+use crate::helper::Direct2D;
+use crate::helper::Direct2D::*;
 
-use crate::lambda::Direct2D::*;
-impl Direct2D {
-    fn to_vector(&self) -> (i8, i8) {
-        match self {
-            Up => (0, 1),
-            Down => (0, -1),
-            Left => (-1, 0),
-            Right => (1, 0),
-        }
-    }
-    fn from_vector(x: i8, y: i8) -> Self {
-        match (x, y) {
-            (0, 1) => Up,
-            (0, -1) => Down,
-            (-1, 0) => Left,
-            _ => Right,
-        }
-    }
-    /// to 90deg* 0 , 1 , 2, 4, conterclockwise
-    fn to_number(&self) -> u8 {
-        match self {
-            Up => 1,
-            Down => 3,
-            Left => 2,
-            Right => 0,
-        }
-    }
-    fn from_number(n: u8) -> Self {
-        match n % 4 {
-            1 => Up,
-            3 => Down,
-            2 => Left,
-            _ => Right,
-        }
-    }
-    fn opposite(&self) -> Self {
-        let v = self.to_vector();
-        Self::from_vector(-v.0, -v.1)
-    }
-    ///rotate , conterclockwise
-    fn rotation(&self, rot: Self) -> Self {
-        Self::from_number(self.to_number() + rot.to_number())
-    }
-    fn from_str(str: &str) -> Self {
-        match str {
-            "^" => Up,
-            "v" => Down,
-            ">" => Right,
-            _ => Left,
-        }
-    }
-}
-impl Default for Direct2D {
-    fn default() -> Self {
-        Right
-    }
-}
-impl Display for Direct2D {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Up => write!(f, "^"),
-            Down => write!(f, "v"),
-            Left => write!(f, "<"),
-            Right => write!(f, ">"),
-        }
-    }
-}
+// const LAMBDA: char = 'λ';
+
 #[derive(Debug)]
 pub struct LambdaBox<T>(Rc<RefCell<LamExpr<T>>>);
 #[derive(Debug)]
@@ -141,16 +70,12 @@ impl<T> LambdaBox<T> {
             _ => false,
         }
     }
-    pub fn eval_value(mut self) -> Self {
-        self.eval();
-        self
-    }
     fn borrow(&self) -> Self {
         Borrow(self.get_ref()).wrap()
     }
-    fn duplicate(&self, ref_map: &mut HashMap<LambdaRef<T>, LambdaRef<T>>) -> Self {
+    fn do_borrow(&self, ref_map: &mut HashMap<LambdaRef<T>, LambdaRef<T>>) -> Self {
         match &*self.0.borrow() {
-            Link(g) => g.duplicate(ref_map),
+            Link(g) => g.do_borrow(ref_map),
             Borrow(x) => {
                 if let Some(new_ref) = ref_map.get(x) {
                     Borrow(new_ref.clone()).wrap()
@@ -161,18 +86,18 @@ impl<T> LambdaBox<T> {
             Lam(x, g) => {
                 let (_, var_ref) = Var.wrap_ref();
                 ref_map.insert(x.clone(), var_ref.clone());
-                Lam(var_ref, g.duplicate(ref_map)).wrap()
+                Lam(var_ref, g.do_borrow(ref_map)).wrap()
             }
-            App(dir, h, g) => App(*dir, h.duplicate(ref_map), g.duplicate(ref_map)).wrap(),
+            App(dir, h, g) => App(*dir, h.do_borrow(ref_map), g.do_borrow(ref_map)).wrap(),
             Var => {
                 if let Some(var_ref) = ref_map.get(&self.get_ref()) {
                     LambdaBox(var_ref.0.clone())
                 } else {
-                    Borrow(self.get_ref()).wrap()
+                    self.borrow()
                 }
             }
 
-            _ => Borrow(self.get_ref()).wrap(),
+            _ => self.borrow(),
         }
     }
     /// process Link .
@@ -183,7 +108,7 @@ impl<T> LambdaBox<T> {
                 f.do_link();
                 *self = LambdaBox(f.0.clone());
             }
-            Borrow(f) => *self = LambdaBox(f.0.clone()).duplicate(&mut HashMap::new()),
+            Borrow(f) => *self = LambdaBox(f.0.clone()).do_borrow(&mut HashMap::new()),
             Lam(_, f) => {
                 f.do_link();
             }
@@ -374,68 +299,68 @@ impl<T> std::hash::Hash for LambdaRef<T> {
     }
 }
 impl<T: Display> LambdaBox<T> {
-    pub fn gen_lego(&self) -> LambdaLego {
-        self.gen_lego_context(&mut HashMap::new(), 0)
-    }
-    fn gen_lego_context(&self, ref_map: &mut HashMap<LambdaRef<T>, i32>, index: i32) -> LambdaLego {
-        let expr_box = self.0.clone();
-        let expr = &*expr_box.borrow();
-        match expr {
-            Var => {
-                if let Some(j) = ref_map.get(&self.get_ref()) {
-                    LambdaLego::new_top_face(0, 0, j.to_string())
-                } else {
-                    LambdaLego::new_top_face(0, 0, index.to_string())
-                }
-            }
-            Con(s) => LambdaLego::new_top_face(0, 0, s.to_string()),
-            Lam(r, f) => {
-                ref_map.insert(r.clone(), index);
-
-                let lego = f.gen_lego_context(ref_map, index + 1);
-                let mut lam_lego = LambdaLego::new_block(lego.ground_rect, index.to_string());
-                lam_lego.stack(lego);
-                lam_lego
-            }
-            App(dir, f, g) => {
-                let mut f_lego = f.gen_lego_context(ref_map, index);
-                let mut g_lego = g.gen_lego_context(ref_map, index);
-                let fg_lego = match dir {
-                    Up => {
-                        g_lego.move_lego((0, f_lego.ground_rect.h));
-                        g_lego.merge(f_lego);
-                        g_lego
-                    }
-                    Down => {
-                        f_lego.move_lego((0, g_lego.ground_rect.h));
-                        f_lego.merge(g_lego);
-                        f_lego
-                    }
-                    Left => {
-                        g_lego.move_lego((f_lego.ground_rect.w, 0));
-
-                        f_lego.merge(g_lego);
-                        f_lego
-                    }
-                    Right => {
-                        f_lego.move_lego((g_lego.ground_rect.w, 0));
-                        g_lego.merge(f_lego);
-                        g_lego
-                    }
-                };
-
-                let mut app_lego = LambdaLego::new_block(fg_lego.ground_rect, dir.to_string());
-                app_lego.stack(fg_lego);
-                app_lego
-            }
-            Link(f1) => f1.gen_lego_context(ref_map, index),
-            Borrow(f2) => {
-                let mut lego = LambdaBox(f2.0.clone()).gen_lego_context(ref_map, index);
-                lego.symbol_list[0][0].1 = format!("&{}", lego.symbol_list[0][0].1);
-                lego
-            }
-        }
-    }
+    // pub fn gen_lego(&self) -> LambdaLego {
+    //     self.gen_lego_context(&mut HashMap::new(), 0)
+    // }
+    // fn gen_lego_context(&self, ref_map: &mut HashMap<LambdaRef<T>, i32>, index: i32) -> LambdaLego {
+    //     let expr_box = self.0.clone();
+    //     let expr = &*expr_box.borrow();
+    //     match expr {
+    //         Var => {
+    //             if let Some(j) = ref_map.get(&self.get_ref()) {
+    //                 LambdaLego::new_top_face(0, 0, j.to_string())
+    //             } else {
+    //                 LambdaLego::new_top_face(0, 0, index.to_string())
+    //             }
+    //         }
+    //         Con(s) => LambdaLego::new_top_face(0, 0, s.to_string()),
+    //         Lam(r, f) => {
+    //             ref_map.insert(r.clone(), index);
+    //
+    //             let lego = f.gen_lego_context(ref_map, index + 1);
+    //             let mut lam_lego = LambdaLego::new_block(lego.ground_rect, index.to_string());
+    //             lam_lego.stack(lego);
+    //             lam_lego
+    //         }
+    //         App(dir, f, g) => {
+    //             let mut f_lego = f.gen_lego_context(ref_map, index);
+    //             let mut g_lego = g.gen_lego_context(ref_map, index);
+    //             let fg_lego = match dir {
+    //                 Up => {
+    //                     g_lego.move_lego((0, f_lego.ground_rect.h));
+    //                     g_lego.merge(f_lego);
+    //                     g_lego
+    //                 }
+    //                 Down => {
+    //                     f_lego.move_lego((0, g_lego.ground_rect.h));
+    //                     f_lego.merge(g_lego);
+    //                     f_lego
+    //                 }
+    //                 Left => {
+    //                     g_lego.move_lego((f_lego.ground_rect.w, 0));
+    //
+    //                     f_lego.merge(g_lego);
+    //                     f_lego
+    //                 }
+    //                 Right => {
+    //                     f_lego.move_lego((g_lego.ground_rect.w, 0));
+    //                     g_lego.merge(f_lego);
+    //                     g_lego
+    //                 }
+    //             };
+    //
+    //             let mut app_lego = LambdaLego::new_block(fg_lego.ground_rect, dir.to_string());
+    //             app_lego.stack(fg_lego);
+    //             app_lego
+    //         }
+    //         Link(f1) => f1.gen_lego_context(ref_map, index),
+    //         Borrow(f2) => {
+    //             let mut lego = LambdaBox(f2.0.clone()).gen_lego_context(ref_map, index);
+    //             lego.symbol_list[0][0].1 = format!("&{}", lego.symbol_list[0][0].1);
+    //             lego
+    //         }
+    //     }
+    // }
     fn fmt_context(
         &self,
         ref_map: &mut HashMap<LambdaRef<T>, i32>,
@@ -492,8 +417,6 @@ impl<T: Display> LambdaBox<T> {
         &self,
         sq_ref: LambdaRef<T>,
         ref_map: &mut HashMap<LambdaRef<T>, LambdaRef<T>>,
-        // pos: MinoPos,
-        // target: MinoPos,
     ) -> LambdaMino<T> {
         let pos = (0, 0);
         let target = (-1, 0);
@@ -562,7 +485,18 @@ impl<T: Display> LambdaBox<T> {
                 mino
             }
             Link(f) => f.gen_mino_context(sq_ref, ref_map),
-            Borrow(f) => LambdaBox(f.0.clone()).gen_mino_context(sq_ref, ref_map),
+            Borrow(f) => {
+                let mut mino = LambdaBox(f.0.clone()).gen_mino_context(sq_ref.clone(), ref_map);
+                if let Con(s) = &*f.0.clone().borrow() {
+                    let sq = LambdaSquare {
+                        pos,
+                        target,
+                        sq_type: MCon(format!("&{}", s)),
+                    };
+                    mino.squares.insert(sq_ref, sq);
+                }
+                mino
+            }
         }
     }
 }
@@ -580,7 +514,7 @@ impl<T: Display> Display for LambdaSqType<T> {
     fn fmt(&self, fm: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MCon(s) => write!(fm, "{}", s),
-            MApp(d) => write!(fm, "{}", d),
+            MApp(_) => write!(fm, "@"),
             MLam => write!(fm, "/"),
             MLink(_, _) => write!(fm, ""),
         }
@@ -713,131 +647,109 @@ impl<T> Default for LamExpr<T> {
         Var
     }
 }
-#[derive(Debug, Default, Copy, Clone)]
-pub struct IntRectangle {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-impl IntRectangle {
-    fn merge(&self, other: Self) -> Self {
-        let x = min(self.x, other.x);
-        let y = min(self.y, other.y);
-        let x1 = max(self.x + self.w, other.x + other.w);
-        let y1 = max(self.y + self.h, other.y + other.h);
-        IntRectangle {
-            x,
-            y,
-            w: x1 - x,
-            h: y1 - y,
-        }
-    }
-}
-#[derive(Debug, Default)]
-pub struct LambdaLego {
-    // collections of rect for every layer,0 is the ground level,bool= is top rect
-    //use even intergeral Rectangle
-    pub rect_list: Vec<Vec<(IntRectangle, bool)>>,
-    //collections of symbol_list for every layer, bool=is_front_face_text
-    pub symbol_list: Vec<Vec<(MinoPos, String, bool)>>,
-    pub ground_rect: IntRectangle,
-    pub thickness: i32,
-}
-impl LambdaLego {
-    fn move_lego(&mut self, offset: MinoPos) {
-        let o_x = offset.0;
-        let o_y = offset.1;
-        self.ground_rect.x += o_x;
-        self.ground_rect.y += o_y;
-        self.rect_list.iter_mut().for_each(|rects| {
-            rects.iter_mut().for_each(|rect| {
-                rect.0.x += o_x;
-                rect.0.y += o_y;
-            });
-        });
-        self.symbol_list.iter_mut().for_each(|symbols| {
-            symbols.iter_mut().for_each(|symbol| {
-                symbol.0 .0 += offset.0;
-                symbol.0 .1 += offset.1;
-            });
-        });
-    }
-    // fn scale_rect(&mut self, rel_center: Vector2, sx: f32, sy: f32) {
-    //     let m_x = self.out_rect.x + rel_center.x;
-    //     let m_y = self.out_rect.y + rel_center.y;
-    //     let tr_x = |x| sx * (x - m_x) + m_x;
-    //     let tr_y = |y| sy * (y - m_y) + m_y;
-    //     let tr_rect = |rect: &mut Rectangle| {
-    //         *rect = Rectangle {
-    //             x: tr_x(rect.x),
-    //             y: tr_y(rect.y),
-    //             width: sx * rect.width,
-    //             height: sy * rect.height,
-    //         }
-    //     };
-    //     tr_rect(&mut self.out_rect);
-    //     self.rect_list.iter_mut().for_each(|rect| {
-    //         tr_rect(rect);
-    //     });
-    //     self.symbol_list.iter_mut().for_each(|symbol| {
-    //         symbol.0.x = tr_x(symbol.0.x);
-    //         symbol.0.y = tr_x(symbol.0.y);
-    //     });
-    // }
-    fn merge(&mut self, mut other: Self) {
-        let thickness = max(self.thickness, other.thickness);
-        self.thickness = thickness;
-        for i in 0..=thickness as usize {
-            if let Some(other_rects) = other.rect_list.get_mut(i) {
-                if let Some(rects) = self.rect_list.get_mut(i) {
-                    rects.append(other_rects);
-                } else {
-                    let mut new = Vec::new();
-                    new.append(other_rects);
-                    self.rect_list.push(new);
-                }
-            }
-            if let Some(other_sybs) = other.symbol_list.get_mut(i) {
-                if let Some(sybs) = self.symbol_list.get_mut(i) {
-                    sybs.append(other_sybs);
-                } else {
-                    let mut new = Vec::new();
-                    new.append(other_sybs);
-                    self.symbol_list.push(new);
-                }
-            }
-        }
-        self.ground_rect = self.ground_rect.merge(other.ground_rect);
-    }
-    fn stack(&mut self, mut other: Self) {
-        self.thickness += other.thickness;
-        self.rect_list.append(&mut other.rect_list);
-        self.symbol_list.append(&mut other.symbol_list);
-        //self.ground_rect= self.ground_rect.merge(other.ground_rect)
-    }
-    fn new_top_face(x: i32, y: i32, symbol: String) -> Self {
-        let rect = IntRectangle { x, y, w: 2, h: 2 };
-        Self {
-            rect_list: vec![vec![(rect, true)]],
-            symbol_list: vec![vec![((1, 1), symbol, true)]],
-            ground_rect: rect,
-            thickness: 0,
-        }
-    }
-    fn new_block(
-        rect: IntRectangle, /* x: i32, y: i32, w: i32, h: i32 */
-        symbol: String,
-    ) -> Self {
-        let IntRectangle { x, y, w, h } = rect;
-        Self {
-            rect_list: vec![vec![(rect, false)]],
-            symbol_list: vec![vec![
-                ((x + w, y + h / 2), symbol.clone(), false),
-                ((x + w / 2, y), symbol, false),
-            ]],
-            ground_rect: rect,
-            thickness: 1,
-        }
-    }
-}
+// #[derive(Debug, Default, Copy, Clone)]
+// pub struct IntRectangle {
+//     pub x: i32,
+//     pub y: i32,
+//     pub w: i32,
+//     pub h: i32,
+// }
+// impl IntRectangle {
+//     fn merge(&self, other: Self) -> Self {
+//         let x = min(self.x, other.x);
+//         let y = min(self.y, other.y);
+//         let x1 = max(self.x + self.w, other.x + other.w);
+//         let y1 = max(self.y + self.h, other.y + other.h);
+//         IntRectangle {
+//             x,
+//             y,
+//             w: x1 - x,
+//             h: y1 - y,
+//         }
+//     }
+// }
+// #[derive(Debug, Default)]
+// pub struct LambdaLego {
+//     // collections of rect for every layer,0 is the ground level,bool= is top rect
+//     //use even intergeral Rectangle
+//     pub rect_list: Vec<Vec<(IntRectangle, bool)>>,
+//     //collections of symbol_list for every layer, bool=is_front_face_text
+//     pub symbol_list: Vec<Vec<(MinoPos, String, bool)>>,
+//     pub ground_rect: IntRectangle,
+//     pub thickness: i32,
+// }
+// impl LambdaLego {
+//     fn move_lego(&mut self, offset: MinoPos) {
+//         let o_x = offset.0;
+//         let o_y = offset.1;
+//         self.ground_rect.x += o_x;
+//         self.ground_rect.y += o_y;
+//         self.rect_list.iter_mut().for_each(|rects| {
+//             rects.iter_mut().for_each(|rect| {
+//                 rect.0.x += o_x;
+//                 rect.0.y += o_y;
+//             });
+//         });
+//         self.symbol_list.iter_mut().for_each(|symbols| {
+//             symbols.iter_mut().for_each(|symbol| {
+//                 symbol.0 .0 += offset.0;
+//                 symbol.0 .1 += offset.1;
+//             });
+//         });
+//     }
+//     fn merge(&mut self, mut other: Self) {
+//         let thickness = max(self.thickness, other.thickness);
+//         self.thickness = thickness;
+//         for i in 0..=thickness as usize {
+//             if let Some(other_rects) = other.rect_list.get_mut(i) {
+//                 if let Some(rects) = self.rect_list.get_mut(i) {
+//                     rects.append(other_rects);
+//                 } else {
+//                     let mut new = Vec::new();
+//                     new.append(other_rects);
+//                     self.rect_list.push(new);
+//                 }
+//             }
+//             if let Some(other_sybs) = other.symbol_list.get_mut(i) {
+//                 if let Some(sybs) = self.symbol_list.get_mut(i) {
+//                     sybs.append(other_sybs);
+//                 } else {
+//                     let mut new = Vec::new();
+//                     new.append(other_sybs);
+//                     self.symbol_list.push(new);
+//                 }
+//             }
+//         }
+//         self.ground_rect = self.ground_rect.merge(other.ground_rect);
+//     }
+//     fn stack(&mut self, mut other: Self) {
+//         self.thickness += other.thickness;
+//         self.rect_list.append(&mut other.rect_list);
+//         self.symbol_list.append(&mut other.symbol_list);
+//         //self.ground_rect= self.ground_rect.merge(other.ground_rect)
+//     }
+//     fn new_top_face(x: i32, y: i32, symbol: String) -> Self {
+//         let rect = IntRectangle { x, y, w: 2, h: 2 };
+//         Self {
+//             rect_list: vec![vec![(rect, true)]],
+//             symbol_list: vec![vec![((1, 1), symbol, true)]],
+//             ground_rect: rect,
+//             thickness: 0,
+//         }
+//     }
+//     fn new_block(
+//         rect: IntRectangle, /* x: i32, y: i32, w: i32, h: i32 */
+//         symbol: String,
+//     ) -> Self {
+//         let IntRectangle { x, y, w, h } = rect;
+//         Self {
+//             rect_list: vec![vec![(rect, false)]],
+//             symbol_list: vec![vec![
+//                 ((x + w, y + h / 2), symbol.clone(), false),
+//                 ((x + w / 2, y), symbol, false),
+//             ]],
+//             ground_rect: rect,
+//             thickness: 1,
+//         }
+//     }
+// }
