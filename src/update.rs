@@ -33,7 +33,7 @@ pub fn load(game: &mut Game, rl: &RaylibHandle) {
     ));
     game.factories.push(Factory::new_factory(
         &rl,
-        "K-factory",
+        "K-factory/TRUE",
         LambdaBox::k_factory,
         450.0,
         100.0,
@@ -57,7 +57,7 @@ pub fn load(game: &mut Game, rl: &RaylibHandle) {
     ));
     game.factories.push(Factory::new_factory(
         &rl,
-        "B-factory",
+        "B-factory/MULT",
         LambdaBox::b_factory,
         50.0,
         500.0,
@@ -88,6 +88,58 @@ pub fn load(game: &mut Game, rl: &RaylibHandle) {
         },
         1250.0,
         500.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "FALSE/0",
+        LambdaBox::false_factory,
+        50.0,
+        900.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "SUCCESSOR",
+        LambdaBox::succ,
+        450.0,
+        900.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "PLUS",
+        || {
+            LambdaBox::c_factory()
+                .composition("<", LambdaBox::i_factory())
+                .composition("<", LambdaBox::succ())
+        },
+        -350.0,
+        500.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "PREDECESSOR",
+        LambdaBox::pred,
+        850.0,
+        900.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "IS ZERO?",
+        LambdaBox::is_zero,
+        1250.0,
+        900.0,
+        OBJECT_SIZE as f32,
+    ));
+    game.factories.push(Factory::new_factory(
+        &rl,
+        "FOLD",
+        LambdaBox::to_fold,
+        1650.0,
+        100.0,
         OBJECT_SIZE as f32,
     ));
     game.trashbin = Factory::new_trashbin(&rl, 10.0, 10.0, OBJECT_SIZE as f32 / 5.0);
@@ -174,7 +226,9 @@ pub fn update(game: &mut Game, rl: &RaylibHandle, camera: &mut Camera2D) {
         }
     }
     // eval
-    else if rl.is_mouse_button_released(MOUSE_BUTTON_RIGHT) {
+    else if rl.is_mouse_button_released(MOUSE_BUTTON_RIGHT)
+        || rl.is_mouse_button_down(MOUSE_BUTTON_MIDDLE)
+    {
         let _ = &mut game.lam_objs.iter_mut().rev().try_for_each(|obj| {
             if obj.get_rect().check_collision_point_rec(mouse_pos) {
                 let _ = obj.eval_onestep();

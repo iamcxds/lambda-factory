@@ -1,3 +1,4 @@
+// use bevy_ecs::prelude::*;
 use raylib::prelude::*;
 
 mod draw;
@@ -11,6 +12,11 @@ use crate::game::*;
 
 const SCR_W: i32 = 1600;
 const SCR_H: i32 = 800;
+
+// #[derive(Resource)]
+// struct RayLib(RaylibHandle);
+// #[derive(Resource)]
+// struct RLDraw<'a>(RaylibDrawHandle<'a>);
 
 fn main() {
     let (mut rl, thread) = raylib::init().size(SCR_W, SCR_H).title("λ-factory").build();

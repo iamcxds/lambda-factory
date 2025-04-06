@@ -1,9 +1,8 @@
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::fmt::Display;
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::helper::Direct2D;
-use crate::helper::Direct2D::*;
 
 // const LAMBDA: char = 'λ';
 
@@ -139,10 +138,11 @@ impl<T> LambdaBox<T> {
                         return true;
                     }
                 }
-                if g.eval_onestep() {
+                // f.eval_onestep() || g.eval_onestep()
+                if f.eval_onestep() {
                     return true;
                 } else {
-                    f.eval_onestep()
+                    g.eval_onestep()
                 }
             }
             _ => false,
@@ -276,6 +276,71 @@ impl<T> LambdaBox<T> {
     }
     pub fn new_const(t: T) -> Self {
         Con(t).wrap()
+    }
+    //K is true
+    pub fn false_factory() -> Self {
+        let (x, x_r) = Var.wrap_ref();
+        let (_y, y_r) = Var.wrap_ref();
+        let expr = x.abstr(x_r).0;
+        let expr = expr.abstr(y_r).0;
+        expr
+    }
+    pub fn succ() -> Self {
+        let (x, x_r) = Var.wrap_ref();
+        let (f, f_r) = Var.wrap_ref();
+        let (n, n_r) = Var.wrap_ref();
+        let expr = f
+            .borrow()
+            .composition("<", n.composition("<", f).composition("<", x));
+        let expr = expr.abstr(x_r).0.abstr(f_r).0.abstr(n_r).0;
+        expr
+    }
+    pub fn pred() -> Self {
+        let (x, x_r) = Var.wrap_ref();
+        let (f, f_r) = Var.wrap_ref();
+        let (n, n_r) = Var.wrap_ref();
+        let (g, g_r) = Var.wrap_ref();
+        let (h, h_r) = Var.wrap_ref();
+        let expr = n
+            .composition(
+                "<",
+                h.composition("<", g.composition("<", f))
+                    .abstr(h_r)
+                    .0
+                    .abstr(g_r)
+                    .0,
+            )
+            .composition("<", x.abstr(Var.wrap_ref().1).0)
+            .composition("<", Self::i_factory());
+        let expr = expr.abstr(x_r).0.abstr(f_r).0.abstr(n_r).0;
+        expr
+    }
+    pub fn is_zero() -> Self {
+        let (n, n_r) = Var.wrap_ref();
+        let expr = n
+            .composition("<", Self::false_factory().abstr(Var.wrap_ref().1).0)
+            .composition("<", Self::k_factory());
+        let expr = expr.abstr(n_r).0;
+        expr
+    }
+    pub fn to_fold() -> Self {
+        //recursion
+        let (f, f_r) = Var.wrap_ref();
+        let (n, n_r) = Var.wrap_ref();
+        //initial value
+        let (i, i_r) = Var.wrap_ref();
+        //operator
+        let (o, o_r) = Var.wrap_ref();
+        let expr = Self::is_zero()
+            .composition("<", n.borrow())
+            .composition("<", i)
+            .composition(
+                "<",
+                o.composition("<", n.borrow())
+                    .composition("<", f.composition("<", Self::pred().composition("<", n))),
+            );
+        let expr = expr.abstr(n_r).0.abstr(f_r).0.abstr(o_r).0.abstr(i_r).0;
+        expr
     }
 }
 impl<T> PartialEq for LambdaRef<T> {
