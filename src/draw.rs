@@ -5,19 +5,28 @@ pub fn draw(game: &Game, d: &mut RaylibDrawHandle, camera: &Camera2D) {
     d.clear_background(Color::WHITE);
     {
         let d2 = &mut d.begin_mode2D(camera);
-        game.trashbin.render(d2);
-        game.factories.iter().for_each(|fac| {
-            fac.render(d2);
+        draw_grid(
+            d2,
+            game.screen_range.0,
+            game.screen_range.1 + TilePosition(1, 1),
+        );
+        game.factories.iter().for_each(|(pos, fac)| {
+            fac.render(d2, *pos);
         });
-        game.lam_objs.iter().enumerate().for_each(|(i, obj)| {
-            if game.target_id.map_or(false, |id| id == i) {
-                obj.render(d2, Color::CYAN.alpha(0.7));
+        game.lam_objs.iter().for_each(|(pos, obj)| {
+            if game.pointer_tile_pos.map_or(false, |p_pos| p_pos == *pos) {
+                obj.render(d2, *pos, Color::CYAN.alpha(0.7));
             } else {
-                obj.render(d2, obj.bkg_color);
+                obj.render(d2, *pos, obj.bkg_color);
             }
         });
-        game.grab_obj.iter().for_each(|obj| {
-            obj.render(d2, obj.bkg_color);
+        game.grab_obj.iter().for_each(|(pos, obj)| {
+            let tile_pos = if let Some(p_pos) = game.pointer_tile_pos {
+                p_pos
+            } else {
+                *pos
+            };
+            obj.render(d2, tile_pos, obj.bkg_color);
         });
     }
     d.draw_text(
@@ -27,6 +36,22 @@ pub fn draw(game: &Game, d: &mut RaylibDrawHandle, camera: &Camera2D) {
         30,
         Color::GRAY,
     );
+}
+fn draw_grid(d: &mut RaylibDrawHandle, st_pos: TilePosition, ed_pos: TilePosition) {
+    let min_x = st_pos.0;
+    let max_x = ed_pos.0;
+    let min_y = st_pos.1;
+    let max_y = ed_pos.1;
+    for x in min_x..=max_x {
+        let start_pos = TilePosition(x, min_y).to_vec2();
+        let end_pos = TilePosition(x, max_y).to_vec2();
+        d.draw_line_ex(start_pos, end_pos, 10.0, Color::LIGHTGRAY);
+    }
+    for y in min_y..=max_y {
+        let start_pos = TilePosition(min_x, y).to_vec2();
+        let end_pos = TilePosition(max_x, y).to_vec2();
+        d.draw_line_ex(start_pos, end_pos, 10.0, Color::LIGHTGRAY);
+    }
 }
 
 impl<T: std::fmt::Display> LambdaMino<T> {

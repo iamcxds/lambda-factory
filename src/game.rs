@@ -1,25 +1,56 @@
-use std::fmt;
+use std::{collections::HashMap, fmt, ops::Add};
 
 use crate::lambda::*;
 use raylib::prelude::*;
 
 pub const OBJECT_SIZE: i32 = 300;
 
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct TilePosition(pub i32, pub i32);
+impl TilePosition {
+    pub fn to_vec2(&self) -> Vector2 {
+        Vector2 {
+            x: (self.0 * OBJECT_SIZE) as f32,
+            y: (self.1 * OBJECT_SIZE) as f32,
+        }
+    }
+    pub fn get_rect(&self, w: f32, h: f32) -> Rectangle {
+        Rectangle {
+            x: (self.0 * OBJECT_SIZE) as f32,
+            y: (self.1 * OBJECT_SIZE) as f32,
+            width: w,
+            height: h,
+        }
+    }
+    pub fn from_vec2(vec: Vector2) -> Self {
+        TilePosition(
+            (vec.x as i32).div_euclid(OBJECT_SIZE),
+            (vec.y as i32).div_euclid(OBJECT_SIZE),
+        )
+    }
+}
+impl Add for TilePosition {
+    type Output = TilePosition;
+    fn add(self, rhs: Self) -> Self::Output {
+        TilePosition(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Game {
-    pub lam_objs: Vec<LambdaObj<String>>,
-    pub grab_obj: Option<LambdaObj<String>>,
-    // the target obj drag into
-    pub target_id: Option<usize>,
+    //UI
+    pub pointer_tile_pos: Option<TilePosition>,
+    pub screen_range: (TilePosition, TilePosition),
 
-    pub factories: Vec<Factory<String>>,
-    pub trashbin: Factory<String>,
+    pub lam_objs: HashMap<TilePosition, LambdaObj<String>>,
+    pub grab_obj: Option<(TilePosition, LambdaObj<String>)>,
+    // the target obj drag into
+    pub factories: HashMap<TilePosition, Factory<String>>,
 }
 #[derive(Debug, Default)]
 pub struct Factory<T> {
     pub display: String,
     pub generator: Option<fn() -> LambdaBox<T>>,
-    pub position: Vector2,
     pub size: f32,
     text_x: f32,
     text_y: f32,
@@ -30,21 +61,18 @@ impl<T: fmt::Display> Factory<T> {
         let text_w = rl.measure_text(&self.display, 10);
         self.font_size = self.size.min(self.size * 10.0 / text_w as f32) as i32;
         let text_w = rl.measure_text(&self.display, self.font_size as i32);
-        self.text_x = self.position.x + (self.size - text_w as f32) / 2.0;
-        self.text_y = self.position.y + (self.size - self.font_size as f32) / 2.0;
+        self.text_x = (self.size - text_w as f32) / 2.0;
+        self.text_y = (self.size - self.font_size as f32) / 2.0;
     }
     pub fn new_factory(
         rl: &RaylibHandle,
         display: &str,
         generator: fn() -> LambdaBox<T>,
-        x: f32,
-        y: f32,
         size: f32,
     ) -> Self {
         let mut fac = Self {
             display: display.to_string(),
             generator: Some(generator),
-            position: Vector2 { x, y },
             text_x: 0.0,
             text_y: 0.0,
             font_size: 0,
@@ -53,12 +81,11 @@ impl<T: fmt::Display> Factory<T> {
         fac.set_up_text(rl);
         fac
     }
-    pub fn new_trashbin(rl: &RaylibHandle, x: f32, y: f32, size: f32) -> Self {
+    pub fn new_trashbin(rl: &RaylibHandle, size: f32) -> Self {
         let display = "Trash Bin".to_string();
         let mut fac = Self {
             display,
             generator: None,
-            position: Vector2 { x, y },
             text_x: 0.0,
             text_y: 0.0,
             font_size: 0,
@@ -69,29 +96,24 @@ impl<T: fmt::Display> Factory<T> {
     }
     pub fn produce(&self) -> Option<LambdaObj<T>> {
         self.generator.map(|gener| {
-            let obj = LambdaObj::new(gener(), self.position.x, self.position.y, self.size);
+            let obj = LambdaObj::new(gener(), self.size);
             println!("{}", obj.string);
             obj
         })
     }
-    pub fn render(&self, d: &mut RaylibDrawHandle) {
-        d.draw_rectangle_rec(self.get_rect(), Color::GRAY);
-
+    pub fn render(&self, d: &mut RaylibDrawHandle, t_pos: TilePosition) {
+        d.draw_rectangle_rec(self.get_rect(t_pos), Color::GRAY);
+        let v_pos = t_pos.to_vec2();
         d.draw_text(
             &self.display,
-            self.text_x as i32,
-            self.text_y as i32,
+            (v_pos.x + self.text_x) as i32,
+            (v_pos.y + self.text_y) as i32,
             self.font_size as i32,
             Color::BLACK,
         );
     }
-    pub fn get_rect(&self) -> Rectangle {
-        Rectangle {
-            x: self.position.x,
-            y: self.position.y,
-            width: self.size,
-            height: self.size,
-        }
+    pub fn get_rect(&self, t_pos: TilePosition) -> Rectangle {
+        t_pos.get_rect(self.size, self.size)
     }
 }
 
@@ -104,19 +126,17 @@ where
     pub string: String,
     pub mino: LambdaMino<T>,
     // pub lego: LambdaLego,
-    pub position: Vector2,
     pub size: f32,
     pub bkg_color: Color,
     can_eval: bool,
 }
 impl<T: fmt::Display> LambdaObj<T> {
-    pub fn new(lam_box: LambdaBox<T>, x: f32, y: f32, size: f32) -> Self {
+    pub fn new(lam_box: LambdaBox<T>, size: f32) -> Self {
         Self {
             string: lam_box.to_string(),
             mino: lam_box.gen_mino(),
             // lego: lam_box.gen_lego(),
             lam_box,
-            position: Vector2 { x, y },
             size,
             bkg_color: Color::LIGHTCYAN.alpha(0.7),
             can_eval: true,
@@ -159,17 +179,12 @@ impl<T: fmt::Display> LambdaObj<T> {
         // );
         // println!("s-height:{}", self.mino.skew_height);
     }
-    pub fn render(&self, d: &mut RaylibDrawHandle, color: Color) {
-        d.draw_rectangle_rec(self.get_rect(), color);
-        self.mino.render(d, self.position, self.size);
+    pub fn render(&self, d: &mut RaylibDrawHandle, t_pos: TilePosition, color: Color) {
+        d.draw_rectangle_rec(self.get_rect(t_pos), color);
+        self.mino.render(d, t_pos.to_vec2(), self.size);
         // self.lego.render(d, self.position, 30.0);
     }
-    pub fn get_rect(&self) -> Rectangle {
-        Rectangle {
-            x: self.position.x,
-            y: self.position.y,
-            width: self.size,
-            height: self.size,
-        }
+    pub fn get_rect(&self, t_pos: TilePosition) -> Rectangle {
+        t_pos.get_rect(self.size, self.size)
     }
 }
